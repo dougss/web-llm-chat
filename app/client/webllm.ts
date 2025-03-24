@@ -42,13 +42,46 @@ export class WebLLMApi implements LLMApi {
     type: "serviceWorker" | "webWorker",
     logLevel: LogLevel = "WARN",
   ) {
+    // Obter o endpoint do Hugging Face do ambiente (padrão ou espelho)
+    const hfEndpoint =
+      typeof window !== "undefined"
+        ? (window as any).process?.env?.NEXT_PUBLIC_HF_ENDPOINT ||
+          "https://hf-mirror.com/"
+        : "https://hf-mirror.com/";
+
+    console.log("Using HF endpoint:", hfEndpoint);
+
     const engineConfig = {
       appConfig: {
         ...prebuiltAppConfig,
         useIndexedDBCache: this.llmConfig?.cache === "index_db",
+        // Sobrescreve a configuração do modelo para usar o endpoint configurado
+        model_list: prebuiltAppConfig.model_list.map((model) => ({
+          ...model,
+          // Substitui a URL base para os modelos se existir
+          ...((model as any).model_url
+            ? {
+                model_url: (model as any).model_url.replace(
+                  "https://huggingface.co",
+                  hfEndpoint,
+                ),
+              }
+            : {}),
+        })),
       },
       logLevel,
     };
+
+    // Verificar se estamos no navegador antes de criar o worker
+    if (typeof window === "undefined") {
+      // Estamos no servidor (SSR), criamos um stub
+      this.webllm = {
+        type: "webWorker",
+        engine: {} as any,
+      };
+      console.log("Running in SSR mode, Worker will be initialized on client");
+      return;
+    }
 
     if (type === "serviceWorker") {
       log.info("Create ServiceWorkerMLCEngine");
